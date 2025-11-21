@@ -2,7 +2,9 @@
 import { io } from "socket.io-client";
 
 export function createSocket() {
-  const SERVER = import.meta.env.VITE_API_URL || "http://localhost:5000";
+  const SERVER =
+    import.meta.env.VITE_API_URL?.replace(/\/+$/, "") ||
+    "http://localhost:5000";
 
   const socket = io(SERVER, {
     transports: ["websocket"], // Always use WebSocket
