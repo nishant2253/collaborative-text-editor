@@ -32,10 +32,12 @@ export default function DocumentPage() {
     try {
       await api.put(`/documents/${id}`, { content });
 
-      socketRef.current?.emit("document-save", {
-        documentId: id,
-        content,
-      });
+      if (socketRef.current?.connected) {
+        socketRef.current.emit("document-save", {
+          documentId: id,
+          content,
+        });
+      }
 
       toast.success("Document saved!");
     } catch (err) {
@@ -62,58 +64,88 @@ export default function DocumentPage() {
         setContent(d.content || "");
       } catch (err) {
         console.error("Failed to load document", err);
+        toast.error("Failed to load document");
       } finally {
         setLoading(false);
       }
     }
 
     load();
-    return () => (mounted = false);
+    return () => {
+      mounted = false;
+    };
   }, [id]);
 
   // -----------------------------
   // 2. Setup WebSocket
   // -----------------------------
   useEffect(() => {
+    // create a fresh socket instance each page load
     const s = createSocket();
     socketRef.current = s;
 
+    // connect and wire events
     s.connect();
 
-    s.on("connect", () => {
+    const onConnect = () => {
+      // join document room when connected
       s.emit("join-document", {
         documentId: id,
         userId: user?._id,
         userName: user?.name,
       });
-    });
+    };
 
-    // receive full document on join
-    s.on("document", (payload) => {
+    const onDocument = (payload) => {
       if (payload?.content !== undefined) {
         setContent(payload.content);
       }
-    });
+    };
 
-    // presence list
-    s.on("presence-update", (users) => {
-      setActiveUsers(users);
-    });
+    const onPresence = (users) => {
+      setActiveUsers(Array.isArray(users) ? users : []);
+    };
 
-    s.on("user-joined", (u) => console.log("user joined", u));
-    s.on("user-left", (u) => console.log("user left", u));
+    const onUserJoined = (u) => {
+      // optional toast or console
+      console.log("user joined", u);
+    };
 
+    const onUserLeft = (u) => {
+      console.log("user left", u);
+    };
+
+    s.on("connect", onConnect);
+    s.on("document", onDocument);
+    s.on("presence-update", onPresence);
+    s.on("user-joined", onUserJoined);
+    s.on("user-left", onUserLeft);
+
+    // cleanup: remove listeners and disconnect this socket instance
     return () => {
       try {
-        s.emit("leave-document", { documentId: id, userId: user?._id });
-      } catch (e) {}
+        if (s.connected) {
+          s.emit("leave-document", { documentId: id, userId: user?._id });
+        }
+      } catch (e) {
+        // ignore
+      }
 
-      disconnectSocket();
+      s.off("connect", onConnect);
+      s.off("document", onDocument);
+      s.off("presence-update", onPresence);
+      s.off("user-joined", onUserJoined);
+      s.off("user-left", onUserLeft);
+
+      // pass the specific socket to disconnect helper
+      disconnectSocket(s);
+      socketRef.current = null;
     };
+    // we intentionally include user as dependency so presence updates after login work
   }, [id, user]);
 
   // -----------------------------
-  // 3. Auto-Save Every 1.2s
+  // 3. Auto-Save (HTML content)
   // -----------------------------
   useEffect(() => {
     if (!doc) return;
@@ -124,10 +156,12 @@ export default function DocumentPage() {
       try {
         await api.put(`/documents/${id}`, { content });
 
-        socketRef.current?.emit("document-save", {
-          documentId: id,
-          content,
-        });
+        if (socketRef.current?.connected) {
+          socketRef.current.emit("document-save", {
+            documentId: id,
+            content,
+          });
+        }
       } catch (err) {
         console.error("Auto-save failed", err);
       }

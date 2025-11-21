@@ -1,8 +1,13 @@
 // server/websockets/editorSocket.js
 const Document = require("../models/Document");
 
+// -----------------------------------------------------------
+// Main Socket Handler
+// -----------------------------------------------------------
 const setupEditorSocket = (io) => {
   io.on("connection", (socket) => {
+    console.log("Socket connected:", socket.id);
+
     // ---------------------------
     // JOIN DOCUMENT
     // ---------------------------
@@ -15,14 +20,12 @@ const setupEditorSocket = (io) => {
       socket.userName = userName;
 
       try {
-        // Load and send full HTML document to the client who joined
         const doc = await Document.findById(documentId).lean();
         socket.emit("document", { content: doc?.content || "" });
       } catch (err) {
         console.error("Socket join failed:", err);
       }
 
-      // After joining → update presence list
       updatePresence(io, documentId);
     });
 
@@ -32,7 +35,6 @@ const setupEditorSocket = (io) => {
     socket.on("text-change", ({ documentId, delta, content }) => {
       if (!documentId) return;
 
-      // Broadcast delta or full HTML content to others
       socket.to(documentId).emit("text-change", {
         delta,
         content,
@@ -54,7 +56,7 @@ const setupEditorSocket = (io) => {
     });
 
     // ---------------------------
-    // SAVE DOCUMENT CONTENT
+    // MANUAL OR AUTO DOCUMENT SAVE
     // ---------------------------
     socket.on("document-save", async ({ documentId, content }) => {
       if (!documentId) return;
@@ -75,7 +77,7 @@ const setupEditorSocket = (io) => {
     });
 
     // ---------------------------
-    // LEAVE DOCUMENT
+    // USER LEAVES DOCUMENT
     // ---------------------------
     socket.on("leave-document", ({ documentId }) => {
       if (!documentId) return;
@@ -85,19 +87,19 @@ const setupEditorSocket = (io) => {
     });
 
     // ---------------------------
-    // DISCONNECT
+    // SOCKET DISCONNECT
     // ---------------------------
     socket.on("disconnect", () => {
-      if (!socket.documentId) return;
-
-      updatePresence(io, socket.documentId);
+      if (socket.documentId) {
+        updatePresence(io, socket.documentId);
+      }
     });
   });
 };
 
-// ----------------------------------------------------------
-// 🔥 HELPER: SEND PRESENCE LIST TO ALL USERS IN DOCUMENT ROOM
-// ----------------------------------------------------------
+// -----------------------------------------------------------
+// PRESENCE LIST HELPER
+// -----------------------------------------------------------
 async function updatePresence(io, documentId) {
   const sockets = await io.in(documentId).fetchSockets();
 
