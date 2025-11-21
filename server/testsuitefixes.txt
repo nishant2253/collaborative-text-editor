@@ -1,0 +1,138 @@
+This section summarises all issues encountered during backend testing, the root causes, and the fixes implemented to ensure a fully passing test suite for the Collaborative Text Editor backend.
+
+🚩 1. Initial Test Failures – Missing Dependencies
+Problem (Before)
+
+Jest could not find the socket.io module:
+
+Cannot find module 'socket.io'
+
+Cause
+
+socket.io was not installed in the project.
+
+Fix (After)
+
+We installed the correct dependencies:
+
+npm install socket.io socket.io-client
+
+
+Now Jest can properly resolve realtime socket modules.
+
+🚩 2. Jest Config Failures (setupFilesAfterEnv Not Found)
+Problem (Before)
+
+Jest threw:
+
+Module <rootDir>/tests/setup.js was not found
+
+Cause
+
+Jest expected a config path that didn't exist.
+
+Fix (After)
+
+We created proper directory structure:
+
+tests/
+   setup.js
+
+
+Updated jest.config.js:
+
+setupFilesAfterEnv: ["<rootDir>/tests/setup.js"]
+
+
+Now Jest initializes the test environment without crashing.
+
+🚩 3. MongoDB "multiple connection" Errors
+Problem (Before)
+
+All tests were failing with:
+
+MongooseError: Can't call openUri() on an active connection with different connection strings
+
+Cause
+
+Your server code automatically called mongoose.connect() even during test execution.
+Jest → test.setup.js → mongoose.connect()
+Server startup → mongoose.connect()
+This resulted in duplicate connections.
+
+Fix (After)
+
+We disabled DB auto-connect during testing:
+
+if (process.env.NODE_ENV !== "test") {
+    connectDB();
+}
+
+
+Now tests use mongodb-memory-server without conflict.
+
+🚩 4. Middleware Crashes (xss-clean + Supertest)
+Problem (Before)
+
+Many tests failed with:
+
+TypeError: Cannot set property query of [object Object]
+
+Cause
+
+xss-clean mutates req.query, but Supertest provides a frozen object during tests.
+
+Fix (After)
+
+We disabled xss-clean for testing:
+
+if (process.env.NODE_ENV !== "test") {
+    app.use(xss());
+}
+
+
+Now no middleware interferes with testing.
+
+🚩 5. Cookie Header Errors
+Problem (Before)
+TypeError: Invalid value "undefined" for header "Cookie"
+
+Cause
+
+Login endpoint was failing → no cookie set → next tests crashed.
+
+Fix (After)
+
+Once DB & middleware issues were resolved, login & session worked correctly.
+
+🚩 6. Websocket Tests Not Connecting
+Problem (Before)
+
+Socket tests failed due to server not exposing server instance cleanly.
+
+Fix (After)
+
+We made server exportable:
+
+module.exports = { app, server };
+
+
+Socket.io test now works end-to-end.
+
+🚩 7. Delete Route Error – Final Test Failure
+Problem (Before)
+TypeError: doc.remove is not a function
+
+Cause
+
+doc.remove() was removed from Mongoose v7.
+The test expected success, but the API threw 500.
+
+Fix (After)
+
+Updated delete handler:
+
+await doc.deleteOne();
+
+
+After this final fix, all tests passed.
